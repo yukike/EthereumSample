@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>簡易投票システム</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="簡易投票システムです">
+<meta name="keywords" content="キーワード１,キーワード２,キーワード３,キーワード４,キーワード５">
+<link rel="stylesheet" href="css/style.css">
+<LINK REL="SHORTCUT ICON" HREF="favicon.ico">
+<script type="text/javascript" src="js/openclose.js"></script>
+<!--[if lt IE 9]>
+<script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+<script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+<![endif]-->
+
+<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.0/jquery.min.js"></script>
+<script type="text/javascript" src="./js/bignumber.min.js"></script>
+<script type="text/javascript" src="./js/crypto-js.js"></script>
+<script type="text/javascript" src="./js/utf8.js"></script>
+<script type="text/javascript" src="./js/web3.min.js"></script>
+<script type="text/javascript" src="./js/web3a.js"></script>
+<script type="text/javascript" src="./js/votesystem.js"></script>
+<script>
+    //接続するJSON-RPCサーバのIPアドレスおよびポート番号
+    var url = "http://localhost:8545";
+    var user_name;
+    var provider;
+    var web3js;
+    var maxCount;
+    var ended;
+    var numItem;
+    
+	// ページ読み込み時に実行
+	window.addEventListener('load', function() {
+		// web3を定義
+		if (typeof window.web3 !== 'undefined') {
+			// Metamask用
+			web3js = new Web3(window.web3.currentProvider);
+			voteMaster = new VoteMaster(web3js.eth.contract(voteABI).at(voteAddress));
+			web3a = new Web3A(web3js);
+			onlyRinkebyTestNetwork();
+		} else {
+			// Ethereum Wallet用
+		    try {
+			    web3js = new Web3();
+			    var provider = new web3js.providers.HttpProvider(url);
+			    web3js.setProvider(provider);
+			    web3js.eth.defaultAccount = web3js.eth.accounts[0];
+			    web3a = new Web3A(web3js);
+			    voteMaster = new VoteMaster(web3js.eth.contract(voteABI).at(voteAddress));
+			    onlyRinkebyTestNetwork();
+		    } catch(e) {
+				errMessage("ERROR: <a href=\"http://metamask.io\" target=\"_blank\">Metamask</a>をインストールして、リロードしてください");
+		    }
+		}
+		
+    });
+    
+    //Rinkebyテストネットワークか？
+    async function onlyRinkebyTestNetwork() {
+		var netId = await web3a.getNetwork();
+		//logMessage(netId);
+		if (netId === "4" || netId == "4649") {
+			console.log(web3js.eth.accounts[0]);
+			//var chkOwner = await voteMaster.checkOwner(web3js.eth.accounts[0]);
+			//if(chkOwner) {
+			//	logMessage("あなたは管理者です");
+			//} else {
+			//	errMessage("管理者ではありません");
+			//}
+			await init();
+		} else {
+			errMessage("Rinkebyテストネットワークで実行してください");
+		}
+    }
+    
+    //ログイン後初期化
+    async function init() {
+    	//voteMaster = web3js.eth.contract(voteABI).at(voteAddress);
+    	
+    	if(typeof web3js.eth.accounts[0] !== 'undefined') {
+    		document.getElementById("userName").value = web3js.eth.accounts[0];
+    		web3js.eth.defaultAccount = web3js.eth.accounts[0];
+    		var tmpOdai = await voteMaster.getOdai();
+    		document.getElementById("anser").innerHTML = "ASK: " + web3js.toUtf8(tmpOdai);
+    	} else {
+    		// アンロックされていない
+			errMessage("ウォレットがアンロックされていません。アンロック後リロードしてください");
+    		return;
+    	}
+    	
+		//接続するContract(CounterMaster)のアドレスを取得する
+		numItem = await voteMaster.getNumItem();
+		endedInit();
+		tableInit();
+    	
+    	console.log("init end");
+    }
+    //エラーメッセージ
+    function errMessage(message) {
+    	document.getElementById("err").innerHTML = "<font color=\"red\">ERROR:　" + message + "</font>";
+		document.getElementById("wallet").style.display="none";
+		document.getElementById("list").style.display="none";
+		document.getElementById("vote").style.display="none";
+		document.getElementById("refresh").style.display="none";    	
+    }
+    
+    //ログメッセージ
+    function logMessage(message) {
+    	document.getElementById("log").innerHTML = message;
+    }
+    //締め切りを表示
+	async function endedInit() {
+		//締め切りかどうか確認
+		//問題なければ締め切り時間表示
+		//voteMaster = web3js.eth.contract(voteABI).at(voteAddress);
+		//ended = await voteMaster.chkEnded();
+		var dline = await voteMaster.getDeadline()
+		var nowTime = getUnixTimeNow();
+		
+		console.log("dline is " + dline);
+		console.log("nowTime is " + nowTime);
+		console.log("nowTime is " + unixTime2ymd(nowTime));
+		if(dline > nowTime) {
+			ended = false;
+		} else {
+			ended = true;
+		}
+		
+		if(ended == false) {
+			//締め切り表示
+			document.getElementById("ended").innerHTML = "投票中　締め切り：　" + unixTime2ymd(await voteMaster.getDeadline());
+		} else {
+			document.getElementById("ended").innerHTML = "投票締め切りました：　" + unixTime2ymd(await voteMaster.getDeadline());
+			document.getElementById('vote').disabled = true;
+		}
+		
+	}
+    
+    
+    //テーブルの初期化
+    async function tableInit() {
+    	//テーブル初期化
+    	var table = document.getElementById('list');
+    	var tableLength = table.rows.length;
+    	if(tableLength > 1) {
+    		for (var i = numItem; i > 0; i--) {
+    			table.deleteRow(i);
+    		}
+    	}
+    	
+    	//テーブル作成
+    	maxCount = await voteMaster.getMaxCount();
+    	numItem = await voteMaster.getNumItem();
+    	userCount = await voteMaster.getUserCount(web3js.eth.accounts[0]);
+    	console.log("userCount is " + userCount);
+    	if(userCount > 0) {
+    		//投票済
+    		document.getElementById("youvoted").innerHTML = "既に投票済です";
+    	}
+    	
+    	for(var i=0;i<numItem; i++) {
+    		var row = table.insertRow();
+    		var td0 = row.insertCell(0);
+    		if(!ended) {
+    			if(userCount == 0) {
+    				//未投票
+		    		var radioButton1 = document.createElement('input');
+		    		radioButton1.type = 'radio';
+		    		radioButton1.name = 'CounterAddress';
+		    		radioButton1.value = i;
+		    		if(i == 0) {
+		    			radioButton1.checked="checked";
+		    		}
+		    		td0.appendChild(radioButton1);
+	    		} 
+    		} 
+    		// 項目名を取得
+    		var itemName = await voteMaster.getCounterName(i);
+			var td1 = row.insertCell(1);
+			td1.innerHTML = web3js.toUtf8(itemName);
+			var userCounterName = await voteMaster.getUserCounterName(web3js.eth.accounts[0]);
+			console.log("userCounterName is " + userCounterName);
+			console.log("itemName is " + itemName);
+			if(!ended) {
+				if(itemName == userCounterName) {
+					var image_star = new Image(40,40);
+					image_star.src = "images/star.png";
+					td0.align = "center";
+					td0.appendChild(image_star);
+					document.getElementById('vote').disabled = true;
+				}
+			} else {
+				document.getElementById("youvoted").innerHTML = "<h3><center>★★★★★投票結果★★★★★</center></h3>";
+    			// カウント数
+    			var itemCount = await voteMaster.getNumberOfCounter(i);
+    			var td2 = row.insertCell(2);
+    			td2.innerHTML = itemCount;
+    			console.log("itemCount is " + itemCount);
+    			console.log("maxCount is " + maxCount);
+    			
+    			//最多投票だったらバラの当選マークを表示
+    			if(maxCount <= itemCount) {
+					//バラの絵。当選マーク
+					console.log("rose pop1");
+					var image_rose = new Image(40,40);
+					image_rose.src = "images/rose.png";
+					td0.align = "center";
+					td0.appendChild(image_rose);
+					console.log("rose pop2");
+				}
+    		}
+    	}
+    	
+    }
+    
+    
+    //カウントアップ
+    async function countUp() {
+    	var targetAddress;
+    	var CounterList = document.getElementsByName("CounterAddress");
+    	//user_name = $("#userName").val();
+    	//web3.eth.defaultAccount = user_name;
+		
+		document.getElementById('vote').disabled = true;
+		
+		
+    	for(i = 0; i<CounterList.length; i++){
+    		if(CounterList[i].checked) {
+    			//対象のコントラクトアドレスを取得
+    			targetAddress = CounterList[i].value;
+    		}
+    	}
+    	console.log(targetAddress);
+    	
+    	//対象のコントラクト取得
+    	//var Counter = web3js.eth.contract(ABI).at(targetAddress);
+    	try {
+    		console.log("targetAddress is " + targetAddress);
+    		console.log("addr is " + web3js.eth.accounts[0]);
+    		//対象をカウントアップ
+    		//await voteMaster.makeUser(web3js.eth.accounts[0]);
+    		//await voteMaster.countUp(targetAddress);
+    		await voteMaster.userCountUp(web3js.eth.accounts[0], targetAddress);
+    		
+    		document.getElementById("err").textContent = "";
+    		console.log("countUp!!!");
+    	} catch(e) {
+      		errMessage("ウォレットがロックされています。再度アンロックお願いします");
+      		document.getElementById('vote').disabled = false;
+			CounterList.disabled = false;
+    	}
+    	
+    	CounterList.disabled = true;
+    	console.log("countUp end");
+    }
+
+</script>
+</head>
+
+<body>
+
+<div id="container">
+
+<header>
+<h1 id="logo"><a href="index.html"><img src="images/BigLogo.png" alt="ブロックチェーン研究会"></a></h1>
+</header>
+
+<nav id="menubar">
+<ul>
+<li><a href="index.html">Home</a></li>
+<li><a href="about.html">カウントアップサンプル</a></li>
+<li class="current"><a href="vote.html">簡易投票システム</a></li>
+<li><a href="moniter.html">ブロックチェーンモニター</a></li>
+<li><a href="download.html">ダウンロード</a></li>
+</ul>
+</nav>
+
+<div id="contents">
+
+<section>
+
+<p>Ethereum Rinkebyテストネットワークを使用しています。Rinkebyのウォレットをアンロックしてください。<br/>
+ウォレットはMetamaskの使用を推奨⇒Chromeの拡張機能なのでブラウザはChromeを使用願います。<br/>
+Rinkebyのイーサリアムは<a href="https://faucet.rinkeby.io/" target="_blank">ここ</a>からもらえます。※SNSのアカウントが必要です。
+</p>
+
+
+<p id="log"></p>
+<p id="err"></p>
+
+  <table id="wallet" class="ta1">
+  <tr>
+   <th>ウォレットアドレス</th>
+   <td><input type="text" id="userName" value="" size=60 readonly="readonly"></td>
+  </tr>
+  </table>
+  
+  <h2 id="anser"></h2>
+  <p id="ended"></p>
+  <div id="youvoted"></div>
+  <table id="list" class="ta1">
+  <colgroup>
+    <col class="widLeft">
+  </colgroup>
+  <colgroup>
+    <col class="widCenter">
+  </colgroup>
+  <colgroup>
+    <col class="widRight">
+  </colgroup>
+  <tr>
+  </tr>
+  </table>
+  <input type="button" class="square_btn" id="vote" value="投票" onclick="countUp()"/>
+  <br/><br/>
+  
+  <a href="owner.html" target="_top">管理者用画面(オーナ専用)</a>
+</section>
+
+<section id="about">
+
+<h2>解説</h2>
+
+<h3>ログイン</h3>
+<p>ログインと記載していますが、実際にはウォレットのアンロックを行っています<br>
+アンロックをしておかないと、トランザクションを発生させることができないためです。</p>
+
+<h3>ログイン後の表示</h3>
+<p>ログインが成功すると、ブロックチェーンに記録されている項目名とカウント数を表示します<br>
+</p>
+
+<h3>投票</h3>
+<p>投票ボタンを押すと、ブロックチェーンに登録しているカウントアップさせる関数(Counter.countUp)を呼び出します。<br>
+このときトランザクションが発生します。アンロックし、時間経過すると自動でロックされますので、そのときは再度ログインしてから実施します。</p>
+
+
+</section>
+
+</div>
+<!--/contents-->
+
+<footer>
+<small>Copyright&copy; <a href="index.html">ブロックチェーン研究会</a> All Rights Reserved.</small>
+<span class="pr">《<a href="https://template-party.com/" target="_blank">Web Design:Template-Party</a>》</span>
+</footer>
+
+</div>
+<!--/container-->
+
+</body>
+</html>

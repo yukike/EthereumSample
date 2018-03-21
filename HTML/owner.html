@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>簡易投票システム(管理者画面)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="簡易投票システムです">
+<meta name="keywords" content="キーワード１,キーワード２,キーワード３,キーワード４,キーワード５">
+<link rel="stylesheet" href="css/style.css">
+<LINK REL="SHORTCUT ICON" HREF="favicon.ico">
+<script type="text/javascript" src="js/openclose.js"></script>
+<!--[if lt IE 9]>
+<script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+<script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+<![endif]-->
+
+<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.0/jquery.min.js"></script>
+<script type="text/javascript" src="./js/bignumber.min.js"></script>
+<script type="text/javascript" src="./js/crypto-js.js"></script>
+<script type="text/javascript" src="./js/utf8.js"></script>
+<script type="text/javascript" src="./js/web3.min.js"></script>
+<script type="text/javascript" src="./js/web3a.js"></script>
+<script type="text/javascript" src="./js/votesystem.js"></script>
+<script>
+    //接続するJSON-RPCサーバのIPアドレスおよびポート番号
+    var url = "http://localhost:8545";
+    var ans = "Ask: あなたが興味あるものは？";
+    var user_name;
+    var provider;
+    var voteMaster;
+    var ended;
+    var numItem;
+    var web3js;
+    var web3a;
+    
+	// ページ読み込み時に実行
+	window.addEventListener('load', function() {
+		// web3を定義
+		if (typeof window.web3 !== 'undefined') {
+			// Metamask用
+			web3js = new Web3(window.web3.currentProvider);
+			web3a = new Web3A(web3js);
+			voteMaster = new VoteMaster(web3js.eth.contract(voteABI).at(voteAddress));
+			onlyRinkebyTestNetwork();
+		} else {
+			// Ethereum Wallet用
+		    try {
+			    web3js = new Web3();
+			    var provider = new web3js.providers.HttpProvider(url);
+			    web3js.setProvider(provider);
+			    web3js.eth.defaultAccount = web3js.eth.accounts[0];
+			    web3a = new Web3A(web3js);
+			    voteMaster = new VoteMaster(web3js.eth.contract(voteABI).at(voteAddress));
+			    onlyRinkebyTestNetwork();
+		    } catch(e) {
+				errMessage("ERROR: <a href=\"http://metamask.io\" target=\"_blank\">Metamask</a>をインストールして、リロードしてください");
+				document.getElementById("ownerChange").disabled = true;
+				document.getElementById("resetVote").disabled = true;
+		    }
+		}
+		
+    });
+    
+    //Rinkebyテストネットワークか？
+    async function onlyRinkebyTestNetwork() {
+		
+		var netId = await web3a.getNetwork();
+		//logMessage(netId);
+		if (netId === "4" || netId == "4649") {
+			console.log(web3js.eth.accounts[0]);
+			var chkOwner = await voteMaster.checkOwner(web3js.eth.accounts[0]);
+			if(chkOwner) {
+				logMessage("あなたは管理者です");
+				await init();
+			} else {
+				errMessage("管理者ではありません");
+				document.getElementById("ownerChange").disabled = true;
+				document.getElementById("resetVote").disabled = true;
+			}
+		} else {
+			errMessage("Rinkebyテストネットワークで実行してください");
+			document.getElementById("ownerChange").disabled = true;
+			document.getElementById("resetVote").disabled = true;
+		}
+    }
+    
+    //ログイン後初期化
+    async function init() {
+    	if(typeof web3js.eth.accounts[0] !== 'undefined') {
+    		document.getElementById("userName").value = web3js.eth.accounts[0];
+    		web3js.eth.defaultAccount = web3js.eth.accounts[0];
+    	} else {
+    		// アンロックされていない
+			errMessage("ウォレットがアンロックされていません。アンロック後リロードしてください");
+			document.getElementById("ownerChange").disabled = true;
+			document.getElementById("resetVote").disabled = true;
+    		return;
+    	}
+    	
+		//接続するContract(CounterMaster)のアドレスを取得する
+		ended = await voteMaster.chkEnded();
+		if(ended) {
+			document.getElementById("ended").innerHTML = "投票終了しています";
+		} else {
+			var deadline = await voteMaster.getDeadline();
+			console.log("deadline is " + deadline);
+			deadline = unixTime2ymd(deadline);
+			document.getElementById("ended").innerHTML = "投票中です。締め切り時間：" + deadline;
+		}
+		tableInit();
+		
+    	console.log("init end");
+    }
+    
+    function errMessage(message) {
+    	document.getElementById("err").innerHTML = "<font color=\"red\">ERROR:　" + message + "</font>";
+    }
+    
+    function logMessage(message) {
+    	document.getElementById("log").innerHTML = message;
+    }
+    
+    //テーブルの初期化
+    async function tableInit() {
+    	//テーブル初期化
+    	var table = document.getElementById('list');
+    	var tableLength = table.rows.length;
+    	if(tableLength > 1) {
+    		for (var i = CounterAddressList.length; i > 0; i--) {
+    			table.deleteRow(i);
+    		}
+    	}
+    	var maxCount = await voteMaster.getMaxCount();
+    	var odai = await voteMaster.getOdai();
+    	console.log("odai = " + odai);
+    	odai = web3js.toUtf8(odai);
+    	document.getElementById("nowOdai").innerHTML = "ASK:　" + odai;
+    	numItem = await voteMaster.getNumItem();
+    	for(var i=0;i<numItem; i++) {
+    		var row = table.insertRow();
+    		var td0 = row.insertCell(0);
+    		// 項目名を取得
+    		//counter = new Counter(web3js.eth.contract(ABI).at(CounterAddressList[i]));
+    		var voteItem = await voteMaster.getCounterName(i);
+    		var td1 = row.insertCell(1);
+    		td1.innerHTML = web3js.toUtf8(voteItem);
+    		//td1.innerHTML = voteItem;
+    		// カウント数を取得
+    		var itemCount = await voteMaster.getNumberOfCounter(i);
+    		var td2 = row.insertCell(2);
+    		td2.innerHTML = itemCount;
+    		
+    		if(ended) {
+	    		if(maxCount <= itemCount) {
+	    			//バラの絵。当選マーク
+					var image_rose = new Image(40,40);
+					image_rose.src = "images/rose.png";
+					image_rose.align = "center";
+					td0.appendChild(image_rose);
+				}
+			}
+    	}
+		
+    }
+    
+	//オーナ変更
+	async function ownerChange() {
+		await voteMaster.setOwner(document.getElementById("ownerAddress").value);
+		document.getElementById("ownerChange").disabled = true;
+	}
+	
+	//投票お題設定
+	async function resetVote() {
+		var unixDeadline = getUnixTime(document.getElementById("year").value,document.getElementById("month").value,
+			document.getElementById("day").value,document.getElementById("hour").value,document.getElementById("minute").value,0);
+		var unixDeadlineNow = getUnixTimeNow();
+		console.log("unixDeadline");
+		console.log(unixDeadline);
+		console.log("unixDeadlineNow");
+		console.log(unixDeadlineNow);
+		if(unixDeadline < unixDeadlineNow) {
+			logMessage("現在時間より前の時間が設定されています");
+			return;
+		}
+		
+		//ボタンをdisabled
+		document.getElementById("resetVote").disabled = true;
+		//締め切り、お題設定
+		var kekka = await voteMaster.reset(unixDeadline, string_to_utf8_hex_string(document.getElementById("odai").value));
+		console.log(string_to_utf8_hex_string(document.getElementById("odai").value));
+		if(kekka) {
+			if(document.getElementById("komoku1").value != "") {
+				await voteMaster.addCounter(string_to_utf8_hex_string(document.getElementById("komoku1").value));
+				console.log(string_to_utf8_hex_string(document.getElementById("komoku1").value));
+			}
+			if(document.getElementById("komoku2").value != "") {
+				await voteMaster.addCounter(string_to_utf8_hex_string(document.getElementById("komoku2").value));
+			}
+			if(document.getElementById("komoku3").value != "") {
+				await voteMaster.addCounter(string_to_utf8_hex_string(document.getElementById("komoku3").value));
+			}
+			if(document.getElementById("komoku4").value != "") {
+				await voteMaster.addCounter(string_to_utf8_hex_string(document.getElementById("komoku4").value));
+			}
+			if(document.getElementById("komoku5").value != "") {
+				await voteMaster.addCounter(string_to_utf8_hex_string(document.getElementById("komoku5").value));
+			}
+			if(document.getElementById("komoku6").value != "") {
+				await voteMaster.addCounter(string_to_utf8_hex_string(document.getElementById("komoku6").value));
+			}
+			if(document.getElementById("komoku7").value != "") {
+				await voteMaster.addCounter(string_to_utf8_hex_string(document.getElementById("komoku7").value));
+			}
+			if(document.getElementById("komoku8").value != "") {
+				await voteMaster.addCounter(string_to_utf8_hex_string(document.getElementById("komoku8").value));
+			}
+			if(document.getElementById("komoku9").value != "") {
+				await voteMaster.addCounter(string_to_utf8_hex_string(document.getElementById("komoku9").value));
+			}
+			if(document.getElementById("komoku10").value != "") {
+				await voteMaster.addCounter(string_to_utf8_hex_string(document.getElementById("komoku10").value));
+			}
+
+			//ＯＫページに遷移
+			
+		}
+
+	}
+    
+
+
+</script>
+</head>
+
+<body>
+
+<div id="container">
+
+<header>
+<h1 id="logo"><a href="index.html"><img src="images/BigLogo.png" alt="ブロックチェーン研究会"></a></h1>
+</header>
+
+<nav id="menubar">
+<ul>
+<li><a href="index.html">Home</a></li>
+<li><a href="about.html">カウントアップサンプル</a></li>
+<li class="current"><a href="vote.html">簡易投票システム</a></li>
+<li><a href="moniter.html">ブロックチェーンモニター</a></li>
+<li><a href="download.html">ダウンロード</a></li>
+</ul>
+</nav>
+
+<div id="contents">
+
+<section>
+
+<h2>簡易投票システム（管理者画面）</h2>
+<p>簡易投票システムの管理画面です。オーナーでなければ実施できません<br/>
+</p>
+
+<p id="owner"></p>
+<p id="err"></p>
+<p id="log"></p>
+
+
+  <table id="wallet" class="ta1">
+  <tr>
+   <th>ウォレットアドレス</th>
+   <td><input type="text" id="userName" value="" size=60 readonly="readonly"></td>
+  </tr>
+  </table>
+  <h2>オーナ変更</h2>
+  <table id="ownerChangeTable" class="ta1">
+  <tr>
+   <td>変更するオーナのウォレットアドレス</td>
+   <td><center><input type="text" id="ownerAddress" value="" size=100%></center></td>
+  </tr>
+  </table>
+  <input type="button" class="square_btn" id="ownerChange" value="オーナ変更" onclick="ownerChange()"/>
+  <br/><br/>
+  
+  <h2>投票お題設定</h2>
+  <p>投票中の投票がある場合は無くなります</p>
+  <table id="reset" class="ta1">
+  <tr>
+   <td>投票のお題</td>
+   <td><input type="text" id="odai" value="" size=60></td>
+  </tr>
+  <tr>
+   <td>締め切り</td>
+   <td><input type="text" id="year" value="" size=2>年<input type="text" id="month" value="" size=2>月<input type="text" id="day" value="" size=2>日　<input type="text" id="hour" value="" size=2>時<input type="text" id="minute" value="" size=2>分</td>
+  </tr>
+  <tr>
+   <td rowspan=10>投票項目</td>
+   <td><input type="text" id="komoku1" value="" size=60></td>
+  </tr>
+  <tr>
+   <td><input type="text" id="komoku2" value="" size=60></td>
+  </tr>
+  <tr>
+   <td><input type="text" id="komoku3" value="" size=60></td>
+  </tr>
+  <tr>
+   <td><input type="text" id="komoku4" value="" size=60></td>
+  </tr>
+  <tr>
+   <td><input type="text" id="komoku5" value="" size=60></td>
+  </tr>
+  <tr>
+   <td><input type="text" id="komoku6" value="" size=60></td>
+  </tr>
+  <tr>
+   <td><input type="text" id="komoku7" value="" size=60></td>
+  </tr>
+  <tr>
+   <td><input type="text" id="komoku8" value="" size=60></td>
+  </tr>
+  <tr>
+   <td><input type="text" id="komoku9" value="" size=60></td>
+  </tr>
+  <tr>
+   <td><input type="text" id="komoku10" value="" size=60></td>
+  </tr>
+  </table>
+  <input type="button" class="square_btn" id="resetVote" value="投票設定" onclick="resetVote()"/>
+  <br/><br/>
+  <h2>投票状況</h2>
+  <h3 id="nowOdai"></h3>
+  <p id="ended"></p>
+  <table id="list" class="ta1">
+  <colgroup>
+    <col class="widLeft">
+  </colgroup>
+  <colgroup>
+    <col class="widCenter">
+  </colgroup>
+  <colgroup>
+    <col class="widRight">
+  </colgroup>
+  <tr>
+  </tr>
+  </table>
+
+</section>
+
+<section id="about">
+
+<h2>解説</h2>
+
+<h3>管理画面</h3>
+<p>オーナとして設定されたウォレットアドレス以外は機能実行することはできません<br>
+
+
+<h3>ログイン後の表示</h3>
+<p>ログインが成功すると、ブロックチェーンに記録されている項目名とカウント数を表示します<br>
+</p>
+
+<h3>オーナ変更</h3>
+オーナにしたいウォレットアドレスを指定することによりオーナを変更できます
+
+<h3>投票の設定</h3>
+<p>既に投票中の投票がある場合リセットされます</p>
+
+
+</section>
+
+</div>
+<!--/contents-->
+
+<footer>
+<small>Copyright&copy; <a href="index.html">ブロックチェーン研究会</a> All Rights Reserved.</small>
+<span class="pr">《<a href="https://template-party.com/" target="_blank">Web Design:Template-Party</a>》</span>
+</footer>
+
+</div>
+<!--/container-->
+
+</body>
+</html>

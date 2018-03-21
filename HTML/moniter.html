@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>ブロックチェーンモニター</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="ブロックチェーンのモニターです">
+<meta name="keywords" content="キーワード１,キーワード２,キーワード３,キーワード４,キーワード５">
+<link rel="stylesheet" href="css/style.css">
+<LINK REL="SHORTCUT ICON" HREF="favicon.ico">
+<script type="text/javascript" src="js/openclose.js"></script>
+<!--[if lt IE 9]>
+<script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+<script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+<![endif]-->
+
+<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.0/jquery.min.js"></script>
+<script type="text/javascript" src="./js/bignumber.min.js"></script>
+<script type="text/javascript" src="./js/crypto-js.js"></script>
+<script type="text/javascript" src="./js/utf8.js"></script>
+<script type="text/javascript" src="./js/web3.min.js"></script>
+<script>
+    //接続するJSON-RPCサーバのIPアドレスおよびポート番号
+    var url = "http://localhost:8545"
+    var user_name;
+    var stop = false;
+    
+	// ページ読み込み時に実行
+	window.addEventListener('load', function() {
+		// web3を定義
+		if (typeof window.web3 !== 'undefined') {
+			// Metamaskは使用不可
+			errMessage("Metamaskはこの機能を使用できません");
+			document.getElementById("start").disabled = true;
+			document.getElementById("stop").disabled = true;
+			
+		} else {
+			// Ethereum Wallet用
+		    try {
+			    web3js = new Web3();
+			    var provider = new web3js.providers.HttpProvider(url);
+			    web3js.setProvider(provider);
+			    web3js.eth.defaultAccount = web3js.eth.accounts[0];
+		    } catch(e) {
+				errMessage("<a href=\"http://metamask.io\" target=\"_blank\">Metamask</a>をインストールして、リロードしてください");
+				document.getElementById("start").disabled = true;
+				document.getElementById("stop").disabled = true;
+		    }
+		}
+    });
+    
+    
+    //監視開始
+    function startMonitor() {
+    	stop = false;
+    	//20件目のブロックから参照
+    	var startBlockNo = web3js.eth.blockNumber - 20;
+    	var table = document.getElementById("list");
+    	var i = startBlockNo;
+    	for(; i < web3js.eth.blockNumber; i++) {
+    		var result = web3js.eth.getBlock(i);
+    		insertBlockRow(result, table, i);
+    	}
+    	setTimeout(function() {
+    		watchBlock(table, i);
+    	}, 10000);
+    }
+    
+    //ブロック監視
+    function watchBlock(table, blockNumber) {
+    	if(stop) {
+    		return;
+    	}
+    	if(blockNumber == web3js.eth.blockNumber) {
+    		//最新ブロックならばタイマーセットしてリターン
+    		setTimeout(function() {
+    			watchBlock(table, blockNumber);
+    		}, 10000);
+    		return;
+    	}
+    	//最新ブロックではないなら情報ＧＥＴしてタイマーセット
+    	var result = web3js.eth.getBlock(blockNumber);
+    	insertBlockRow(result, table, blockNumber);
+    	setTimeout(function() {
+    		watchBlock(table, ++blockNumber);
+    	}, 10000);
+    }
+    
+    //行追加、ブロック情報編集
+    function insertBlockRow(result, table) {
+    	var row = table.insertRow();
+    	var td = row.insertCell(0);
+    	td.innerHTML = result.number;
+    	var td = row.insertCell(1);
+    	td.innerHTML = new Date(result.timestamp * 1000).toString();
+    	var td = row.insertCell(2);
+    	td.innerHTML = result.hash;
+    	var td = row.insertCell(3);
+    	if(result.transactions.length > 0) {
+    		insertTranRow(result.transactions, td);
+    	}
+    }
+    
+    //行追加、トランザクション情報編集
+    function insertTranRow(transactions, td) {
+    	var allData = "";
+    	for ( var i = 0; i < transactions.length; i++) {
+    		var data = web3js.eth.getTransaction(transactions[i]);
+    		allData += JSON.stringify(data);
+    		console.log(allData);
+    	}
+    	td.innerHTML = "<input type='text' value='" + allData + "' /></td>";
+    }
+    
+    //停止
+    function stopWatch() {
+    	stop = true;
+    }
+    
+    function errMessage(message) {
+    	document.getElementById("err").innerHTML = "<font color=\"red\">ERROR:　" + message + "</font>";
+    }
+</script>
+</head>
+
+<body>
+
+<div id="container">
+
+<header>
+<h1 id="logo"><a href="index.html"><img src="images/BigLogo.png" alt="ブロックチェーン研究会"></a></h1>
+</header>
+
+<nav id="menubar">
+<ul>
+<li><a href="index.html">Home</a></li>
+<li><a href="about.html">カウントアップサンプル</a></li>
+<li><a href="vote.html">簡易投票システム</a></li>
+<li class="current"><a href="moniter.html">ブロックチェーンモニター</a></li>
+<li><a href="download.html">ダウンロード</a></li>
+</ul>
+</nav>
+
+<div id="contents">
+
+<section>
+
+<h2>ブロックチェーンモニター</h2>
+<div id="err"></div>
+
+<input type="button" id="start" class="square_btn" value="start" onclick="startMonitor();" />
+<input type="button" id="stop" class="square_btn" value="stop" onclick="stopWatch();" />
+<table class="ta1" id="list" border="1">
+	<tr>
+		<th>BlockNumber</th>
+		<th>TimeStamp</th>
+		<th>BlockHash</th>
+		<th>Transaction</th>
+	</tr>
+</table>
+
+</section>
+
+<section id="about">
+
+<h2>解説</h2>
+
+<h3>ブロックチェーンのブロックの情報を表示します</h3>
+<p>startボタンを押すと最新から20ブロックを表示します。以後ブロックが作成されたら更新します<br>
+stopボタンを押すと更新を停止します。<br>
+トランザクションが発生した場合、Transaction列に表示されます</p>
+
+</section>
+
+</div>
+<!--/contents-->
+
+<footer>
+<small>Copyright&copy; <a href="index.html">ブロックチェーン研究会</a> All Rights Reserved.</small>
+<span class="pr">《<a href="https://template-party.com/" target="_blank">Web Design:Template-Party</a>》</span>
+</footer>
+
+</div>
+<!--/container-->
+
+</body>
+</html>
